@@ -1,0 +1,168 @@
+# StudySwap
+
+**Pass it on. Pick it up.**
+
+StudySwap is a school marketplace for uniforms, books, shoes, stationery and sports kit. Families buy, swap or donate what their children have outgrown, pay with M-Pesa, and collect everything at the school gate.
+
+> **Status: working prototype.** The app, the website and the M-Pesa payment flow are built. Listings, chat and accounts are still stored in each person's own browser, so they are not shared between users yet. See [Roadmap](#roadmap).
+
+## Features
+
+- Browse by school, category and type (for sale, swap, free), with search
+- List an item to sell, swap or give away (sellers add an M-Pesa number for payouts)
+- Buyer and seller chat
+- M-Pesa checkout using STK Push (the PIN prompt on your phone)
+- Revenue features: a fee on each sale, boosted ("Featured") listings, term-start bundles with 10% off, and **StudySwap Plus**, a paid tier with lower fees and free boosts
+- School-verified seller badges
+- Light and dark mode
+- A full landing website with the app embedded in a phone frame
+
+## How it runs
+
+The project has two parts.
+
+| Part | What it is | Where it can be hosted |
+|---|---|---|
+| `public/index.html` | The whole website and app in one file. No build step. | Anywhere that serves static files, including GitHub Pages |
+| `server.js` | A small Node server that serves the site and talks to Safaricom's Daraja API | Any Node host with HTTPS (Render, Railway, Fly.io, a VPS) |
+
+When the site is opened **without** the server (for example on GitHub Pages), it runs in **demo mode**: checkout works, but payments are simulated and no real money moves. When the server is running, the same page switches to real M-Pesa payments automatically.
+
+> GitHub Pages can only host static files, so it cannot run `server.js`. Use Pages for the demo and a Node host for real payments.
+
+## Project structure
+
+```
+studyswap/
+  public/
+    index.html          # website + app (single file)
+  server.js             # Express server + M-Pesa (Daraja) integration
+  package.json
+  .env.example          # copy to .env and fill in
+  .github/workflows/
+    pages.yml           # deploys public/ to GitHub Pages
+```
+
+## Quick start (demo mode)
+
+No install needed. Open `public/index.html` in a browser, or serve it:
+
+```bash
+npx serve public
+```
+
+## Run with real M-Pesa payments
+
+You need Node 18 or newer and a free Safaricom developer account.
+
+### 1. Get Daraja credentials
+
+1. Sign up at [developer.safaricom.co.ke](https://developer.safaricom.co.ke).
+2. Create an app and enable **Lipa Na M-Pesa Sandbox**.
+3. Copy the **Consumer Key**, **Consumer Secret** and the sandbox **Passkey**.
+
+### 2. Install and configure
+
+```bash
+git clone https://github.com/your-username/studyswap.git
+cd studyswap
+npm install
+cp .env.example .env
+```
+
+Edit `.env`:
+
+| Variable | What to put |
+|---|---|
+| `MPESA_ENV` | `sandbox` while testing, `production` when live |
+| `MPESA_CONSUMER_KEY` | From your Daraja app |
+| `MPESA_CONSUMER_SECRET` | From your Daraja app |
+| `MPESA_SHORTCODE` | `174379` in the sandbox, your Paybill or Till when live |
+| `MPESA_PASSKEY` | From the Daraja portal |
+| `PUBLIC_URL` | The public **https** address of your server |
+| `CALLBACK_SECRET` | A long random string (`openssl rand -hex 16`) |
+| `PORT` | Optional, defaults to `3000` |
+
+### 3. Let Safaricom reach your computer (testing only)
+
+Safaricom confirms payments by calling your server, so it needs a public address:
+
+```bash
+ngrok http 3000
+```
+
+Copy the `https://...` address into `PUBLIC_URL` in `.env`.
+
+### 4. Start it
+
+```bash
+npm start
+```
+
+Open your ngrok address in the browser, buy something, and enter the sandbox test number from the Daraja simulator. The "Demo mode" note disappears when the server is connected.
+
+## Deploying
+
+### The demo on GitHub Pages (free)
+
+1. Push this repo to GitHub on the `main` branch.
+2. Go to **Settings > Pages** and set **Source** to **GitHub Actions**.
+3. The included workflow publishes `public/` at `https://your-username.github.io/studyswap/`.
+
+This version runs in demo mode.
+
+### The live app (real payments)
+
+Connect the repo to a Node host such as [Render](https://render.com) or [Railway](https://railway.app):
+
+- **Build command:** `npm install`
+- **Start command:** `npm start`
+- **Environment variables:** everything from the table above, with `PUBLIC_URL` set to your real https domain
+
+> **Heads up:** `payments.json` is a simple starter store. Many free hosts wipe their disk on restart, which would lose payment records. Move to a database (Postgres) before you take real payments.
+
+### Going live with Safaricom
+
+1. Get a **Paybill or Till** number through M-PESA for Business.
+2. Complete the **Go Live** steps in the Daraja portal. Safaricom then gives you a production Passkey.
+3. Set `MPESA_ENV=production` and your production credentials.
+
+## How a payment works
+
+1. The buyer taps **Pay** and enters their Safaricom number.
+2. The browser calls `POST /api/pay/stk`. The server asks Safaricom to send a PIN prompt to the buyer's phone.
+3. The buyer enters their PIN.
+4. Safaricom calls `POST /api/mpesa/callback/<CALLBACK_SECRET>` with the result.
+5. The app polls `GET /api/pay/status/:id` and completes the order when the status is `paid`. If no callback arrives within 25 seconds, the server asks Safaricom directly.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/health` | Lets the page know the server is connected |
+| `POST /api/pay/stk` | Start a payment (`phone`, `amount`, `desc`) |
+| `POST /api/mpesa/callback/:secret` | Safaricom's payment result |
+| `GET /api/pay/status/:id` | Payment status: `pending`, `paid` or `failed` |
+
+## Security notes
+
+- **Never commit `.env`.** It is already in `.gitignore`. If keys are ever exposed, rotate them in the Daraja portal.
+- Callbacks are accepted only on a URL containing your secret.
+- Order totals are currently set by the browser. The server should own items and prices and calculate amounts itself before you handle real volume.
+- You will be handling phone numbers, so add a privacy policy and follow Kenya's Data Protection Act.
+
+## Roadmap
+
+- [ ] Shared database for listings, accounts and sign-in
+- [ ] Real chat between buyers and sellers, with notifications
+- [ ] Server-side items and prices
+- [ ] Seller payouts (M-Pesa B2C or manual process)
+- [ ] Plus auto-renewal (M-Pesa Ratiba)
+- [ ] School verification and admin tools
+- [ ] Move payment records to Postgres
+
+## Contributing
+
+Issues and pull requests are welcome. Please open an issue first to discuss big changes.
+
+## License
+
+Choose a license before making the repo public (for example [MIT](https://choosealicense.com/licenses/mit/)) and add a `LICENSE` file.
